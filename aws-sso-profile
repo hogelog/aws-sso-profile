@@ -92,6 +92,6 @@ end
 sso_login(profile, profile_config[:start_url], profile_config[:region])
 
 puts <<~SH
-  export AWS_PROFILE=#{profile}
-  export AWS_DEFAULT_REGION=#{profile_config[:region]}
+  export AWS_PROFILE="#{profile}"
+  export AWS_DEFAULT_REGION="#{profile_config[:region]}"
 SH
