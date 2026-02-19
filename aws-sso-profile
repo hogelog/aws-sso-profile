@@ -36,7 +36,7 @@ def unset_awsvars
 end
 
 def aws!(*args)
-  system(unset_awsvars, "aws", *args, exception: true)
+  system(unset_awsvars, "aws", *args, out: STDERR, exception: true)
 end
 
 def find_valid_sso_token(start_url, region)
