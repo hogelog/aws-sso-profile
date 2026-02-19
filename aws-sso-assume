@@ -1,0 +1,96 @@
+#!/usr/bin/env ruby
+
+require "json"
+require "time"
+
+DEFAULT_REGION = "ap-northeast-1"
+
+def parse_aws_config(profile)
+  config_path = File.join(Dir.home, ".aws", "config")
+  return nil unless File.exist?(config_path)
+
+  content = File.read(config_path)
+  
+  match = content.match(/^\[profile #{Regexp.escape(profile)}\]\n((?:[^\[\]\n]+\s*=\s[^\[\]\n]+\n?)+)/m)
+  return nil unless match
+
+  section = match[1]
+  
+  config = {}
+  section.scan(/^(\w+)\s*=\s*(.+)$/) do |key, value|
+    config[key] = value.strip
+  end
+
+  return nil unless config["sso_start_url"] && config["sso_account_id"] && config["sso_role_name"]
+
+  {
+    start_url: config["sso_start_url"],
+    account_id: config["sso_account_id"],
+    role_name: config["sso_role_name"],
+    region: config["sso_region"] || config["region"] || DEFAULT_REGION
+  }
+end
+
+def unset_awsvars
+  Hash[ENV.keys.select { _1.start_with?("AWS_") }.zip([])]
+end
+
+def aws!(*args)
+  system(unset_awsvars, "aws", *args, exception: true)
+end
+
+def find_valid_sso_token(start_url, region)
+  cache_dir = File.join(Dir.home, ".aws", "sso", "cache")
+  return nil unless Dir.exist?(cache_dir)
+
+  Dir.glob(File.join(cache_dir, "*.json")).each do |path|
+    begin
+      content = JSON.parse(File.read(path))
+      
+      next unless content["accessToken"]
+      
+      if content["startUrl"] == start_url && 
+         content["region"] == region &&
+         content["expiresAt"] &&
+         Time.now < Time.parse(content["expiresAt"])
+        return content
+      end
+    rescue JSON::ParserError, ArgumentError
+      next
+    end
+  end
+
+  nil
+end
+
+def sso_login(profile, start_url, region)
+  token = find_valid_sso_token(start_url, region)
+  if token
+    STDERR.puts "Already logged in (expires at #{token['expiresAt']})."
+    return
+  end
+
+  STDERR.puts "SSO session expired or not found. Logging in..."
+  aws! "sso", "login", "--profile", profile
+end
+
+if ARGV.empty?
+  STDERR.puts "Usage: eval $(#{$PROGRAM_NAME} <profile-name>)"
+  exit 1
+end
+
+profile = ARGV[0]
+
+profile_config = parse_aws_config(profile)
+unless profile_config
+  STDERR.puts "Error: Profile '#{profile}' not found or not an SSO profile"
+  STDERR.puts "Check ~/.aws/config for profile configuration"
+  exit 1
+end
+
+sso_login(profile, profile_config[:start_url], profile_config[:region])
+
+puts <<~SH
+  export AWS_PROFILE=#{profile}
+  export AWS_DEFAULT_REGION=#{profile_config[:region]}
+SH
