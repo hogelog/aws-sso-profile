@@ -66,7 +66,8 @@ end
 def sso_login(profile, start_url, region)
   token = find_valid_sso_token(start_url, region)
   if token
-    STDERR.puts "Already logged in (expires at #{token['expiresAt']})."
+    expires_at = Time.parse(token['expiresAt']).localtime
+    STDERR.puts "Already logged in (expires at #{expires_at})."
     return
   end
 
